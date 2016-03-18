@@ -1,0 +1,4 @@
+{
+  "mode": "Timer", 
+  "params": {"warn": "120", "crit": "300"}
+}
