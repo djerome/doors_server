@@ -11,6 +11,7 @@ import threading
 import logging
 import smtplib
 import httplib2
+import os
 from email.MIMEMultipart import MIMEMultipart
 from email.MIMEText import MIMEText
 from flask import Flask, request, json, jsonify
@@ -148,7 +149,6 @@ def check_alarm(door, event, timestamp):
 	global sec_mode, sec_params
 
 	# stop timers
-	print "Stopping timers if necessary"
 	prefix = '[' + door.upper() + ']'
 	if sec_mode == TIMER:
 		for severity in timer_severities:
@@ -343,7 +343,7 @@ for door in doors:
 
 # Configure log file
 logging.basicConfig(filename=log_file, level=logging.DEBUG, format=log_format, datefmt=date_format)
-logging.debug('RESTART')	# log program restart
+logging.debug('RESTART DOORS-'+os.path.basename(__file__))	# log program restart
 
 # get the security mode information from the security config file
 # includes the security mode (OFF, TIMER, NIGHT, VACATION) and the appropriate parameters for that mode

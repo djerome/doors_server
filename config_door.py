@@ -6,6 +6,8 @@
 
 import httplib2
 from flask import json
+import logging
+import RPi.GPIO as io
 
 # Constants used on server and client
 GARAGE = "Garage"
@@ -79,3 +81,48 @@ def rest_get(url):
 				wait_time = wait_time + wait_time
 
 	return json.loads(content)
+
+def log_restart(script_name):
+	"""Log restart of script"""
+
+	### Inputs ###
+	#
+	#	script_name: the filename of the script running
+	#
+	### Outputs ###
+	#
+	#	None
+	#
+	###
+
+	# Configure log file
+	logging.basicConfig(filename=log_file, level=logging.DEBUG, format=log_format, datefmt=date_format)
+	logging.debug('RESTART: ' + script_name)	# log program restart
+
+def get_doors_state():
+	"""Get state of both doors from GPIO pins"""
+
+	### Inputs ###
+	#
+	#	None
+	#
+	### Outputs ###
+	#
+	#	state: dictionary of doors states
+	#
+	###
+
+	state = {}
+	io.setmode(io.BCM)	# set appropriate mode for reading GPIO
+	for door in doors:
+		io.setup(pin[door], io.IN, pull_up_down=io.PUD_UP)
+
+	for door in doors:
+
+		# get state of door
+		if io.input(pin[door]):	# door open
+			state[door] = OPEN
+		else:
+			state[door] = CLOSED
+
+	return state
