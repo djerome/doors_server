@@ -18,11 +18,15 @@ from flask import Flask, request, json, jsonify
 
 sec_conf_file = "/var/log/doors/.sec_data"
 
+# Alarm timer initializations
+timer = {GARAGE: {WARNING: {}, CRITICAL: {}}, MAN: {WARNING: {}, CRITICAL: {}}}
+
 app = Flask(__name__)
 
 #
 # Function Definitions
 #
+
 
 def get_door_info():
 	"""Initializes information about each door"""
@@ -41,8 +45,7 @@ def get_door_info():
 	###
 
 	# initialize dictionary of current door states
-	get_door_url = "http://" + detect_server + ":5000/api/get_doors"
-	door_state = rest_get(get_door_url)
+	door_state = rest_conn(detect_server, "5000", "/api/get_doors", "GET", "")
 
 	timestamp = datetime.datetime.now()
 
