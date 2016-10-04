@@ -6,7 +6,9 @@
 #
 
 from config_door import *
+#from datetime import datetime, date, time, timedelta
 import datetime
+import time
 import threading
 import logging
 import smtplib
@@ -16,7 +18,7 @@ from email.MIMEMultipart import MIMEMultipart
 from email.MIMEText import MIMEText
 from flask import Flask, request, json, jsonify
 
-sec_conf_file = "/var/log/doors/.sec_data"
+notify_conf_file = "/home/pi/doors/conf/notify.conf"
 
 # Alarm timer initializations
 timer = {GARAGE: {WARNING: {}, CRITICAL: {}}, MAN: {WARNING: {}, CRITICAL: {}}}
@@ -47,7 +49,8 @@ def get_door_info():
 	# initialize dictionary of current door states
 	door_state = rest_conn(detect_server, "5000", "/api/get_doors", "GET", "")
 
-	timestamp = datetime.datetime.now()
+	timestamp = time.time()
+	print "timestamp = ", str(timestamp)
 
 	# initialize info for each door
 	for door in doors:
@@ -78,17 +81,17 @@ def timer_notify(door, event_time, severity, limit):
 	#
 	###
 
-	global door_info
+	global door_info, in_alarm
 
 	door_info[door]['severity'] = severity
 	door_info[door]['timestamp'] = event_time
 
-	asc_time = event_time.strftime("%c")
-	prefix = '[' + door.upper() + ']'
+	asc_time = time.ctime(event_time)
+	asc_limit = str(limit)
 
 	# log event and send email
-	log_str = 'Open since ' + asc_time + ' (> ' + str(limit) + 's)'
-	mail_str = 'Door has been open more than ' + str(limit) + 's.\nSince ' + asc_time
+	log_str = 'Timer (' + asc_limit + 's) expired'
+	mail_str = door + ' door has been open more than ' + asc_limit + 's.\nSince ' + asc_time
 	notify(door, severity, mail_str, log_str)
 
 	return
@@ -110,28 +113,91 @@ def notify(door, severity, mail_str, log_str):
 	###
 
 	prefix = '[' + door.upper() + ']'
-	full_log_str = prefix + severity.upper() + log_str + ': '
-	logging.debug(full_log_str)
+	if log_str != "":
+		full_log_str = prefix + severity.upper() + ': ' + log_str
+		logging.debug(full_log_str)
 
-	# send email
-	mail_addr = 'djerome@gmail.com'
-	msg = MIMEMultipart()
-	msg['From'] = mail_addr
-	msg['To'] = mail_addr
-	msg['Subject'] = prefix + ' ' + severity.upper() + ': Door Open'
-	msg.attach(MIMEText(mail_str))
-	mailserver = smtplib.SMTP('smtp.gmail.com', 587)
-	# identify ourselves to smtp gmail client
-	mailserver.ehlo()
-	# secure our email with tls encryption
-	mailserver.starttls()
-	# re-identify ourselves as an encrypted connection
-	mailserver.ehlo()
-	mailserver.login(mail_addr, 'criznartfpjlyhme')
-	mailserver.sendmail(mail_addr, mail_addr, msg.as_string())
-	mailserver.quit()
+	if mail_str != "":
+		# send email
+		mail_addr = 'djerome@gmail.com'
+		msg = MIMEMultipart()
+		msg['From'] = mail_addr
+		msg['To'] = mail_addr
+		msg['Subject'] = '[GARAGE] ' + door + ' door ' + severity.upper() + ' Alarm'
+		msg.attach(MIMEText(mail_str))
+		mailserver = smtplib.SMTP('smtp.gmail.com', 587)
+		# identify ourselves to smtp gmail client
+		mailserver.ehlo()
+		# secure our email with tls encryption
+		mailserver.starttls()
+		# re-identify ourselves as an encrypted connection
+		mailserver.ehlo()
+		mailserver.login(mail_addr, 'criznartfpjlyhme')
+		mailserver.sendmail(mail_addr, mail_addr, msg.as_string())
+		mailserver.quit()
 
 	return
+
+# Function that stops timers for a door
+def stop_timers(door):
+	"""Stops door timers"""
+
+	### Inputs ###
+	#
+	#	door: door to stop timers for
+	#
+	### Outputs ###
+	#
+	#	None.
+	#
+	###
+
+	# stop all timers
+	for severity in timer_severities:
+		if timer[door][severity]:
+			print "Stopping " + severity + " timer for " + door
+			timer[door][severity].cancel()
+
+	log_str = 'Stopping Timers'
+	notify(door, INFO, "", log_str)
+
+	return
+
+# Function that checks if event occurred during an alarm period like night or vacation
+def check_period(door, start, end, timestamp, notify_mode):
+	"""Checks if event occurred during alarm period"""
+
+	### Inputs ###
+	#
+	#	door: door being checked
+	#	start: start of time period
+	#	end: end of time period
+	#	timestamp: time of event
+	#	notify_mode: notification mode
+	#
+	### Outputs ###
+	#
+	#	alarm: alarm state for the door
+	#
+	###
+
+	dt_timestamp = datetime.datetime.fromtimestamp(timestamp)
+	if (dt_timestamp > start) and (dt_timestamp < end):
+		print notify_mode + " Alarm"
+		alarm = CRITICAL
+		asc_start = start.strftime("%c")
+		asc_end = end.strftime("%c")
+		asc_time = time.ctime(timestamp)
+
+		# log event and send email
+		log_str = notify_mode + ' Alarm: Open between ' + asc_start + ' - ' + asc_end
+		mail_str = door + ' door was opened during ' + notify_mode + ' at ' + asc_time + '.\n' + notify_mode + ' is: ' + asc_start + ' - ' + asc_end + '.'
+		notify(door, alarm, mail_str, log_str)
+	else:
+		print"NO " + notify_mode + " Alarm"
+		alarm = NONE
+
+	return alarm
 
 # Function that checks if a door is in alarm
 def check_alarm(door, event, timestamp):
@@ -149,55 +215,44 @@ def check_alarm(door, event, timestamp):
 	#
 	###
 
-	global sec_mode, sec_params
+	global notify_mode, notify_params
 
-	# stop timers
-	prefix = '[' + door.upper() + ']'
-	if sec_mode == TIMER:
-		for severity in timer_severities:
-			if timer[door][severity]:
-				print "Stopping " + severity + " timer for " + door
-				timer[door][severity].cancel()
-				stop_str = prefix + 'Stopping ' + severity + ' timer'
-				logging.debug(stop_str)
-
-	asc_time = timestamp.strftime("%c")
+	print "Checking alarm for " + door + " " + notify_mode
 
 	# if a door has been opened, take appropriate action depending on security mode
 	if event == OPEN:
 
-		if sec_mode == OFF:
+		if notify_mode == OFF:
 
 			alarm = NONE
 
-		elif sec_mode == TIMER:
+		elif notify_mode == TIMER:
 
 			# start timers
 			print "TIMER - Starting timers"
-			prefix = '[' + door.upper() + ']'
-			open_str = prefix + 'Open - Starting timers'
-			logging.debug(open_str)
 
 			# Setup and start alarm timers
 			for severity in timer_severities:
-				limit = int(sec_params[severity])
+				limit = int(notify_params[severity])
 				timer[door][severity] = threading.Timer(limit, timer_notify, args=(door,timestamp,severity,limit,))
 				timer[door][severity].name = severity
 				timer[door][severity].start()
 
 			alarm = INFO
+			log_str = 'Starting Timers'
+			notify(door, alarm, "", log_str)
 
-		elif sec_mode == NIGHT:
+		elif notify_mode == NIGHT:
 
 			print "NIGHT - Checking night alarm"
 			one_day = datetime.timedelta(days=1)
 			day_today_date = datetime.date.today()
 
-			dusk_time = datetime.strptime(sec_params['dusk'], "%H:%M")
+			dusk_time = datetime.datetime.time(datetime.datetime.strptime(notify_params['dusk'], "%H:%M"))
 			dusk = datetime.datetime.combine(day_today_date, dusk_time)
 			print "dusk today"
 			print dusk
-			dawn_time = datetime.strptime(sec_params['dawn'], "%H:%M")
+			dawn_time = datetime.datetime.time(datetime.datetime.strptime(notify_params['dawn'], "%H:%M"))
 			dawn = datetime.datetime.combine(day_today_date, dawn_time)
 			print "dawn today"
 			print dawn
@@ -205,83 +260,91 @@ def check_alarm(door, event, timestamp):
 			if dusk < dawn:
 				print "dusk and dawn on same day"
 			else:
-				print "dusk is on previous day"
+				print "dawn is on next day"
 				dawn = dawn + one_day
 				print "New dawn"
 				print dawn
 
-			if (timestamp > dusk) and (timestamp < dawn):
-				print "Night Alarm"
-				alarm = CRITICAL
-				asc_dusk = dusk.strftime("%c")
-				asc_dawn = dawn.strftime("%c")
+			alarm = check_period(door, dusk, dawn, timestamp, notify_mode)
 
-				# log event and send email
-				log_str = 'Open at night: ' + asc_time + ' (' + asc_dusk + ' - ' + asc_dawn + ')'
-				mail_str = 'Door was opened at night at ' + asc_time + ' (between ' + asc_dusk + ' and ' + asc_dawn + ').'
-				notify(door, alarm, mail_str, log_str)
-			else:
-				print"NO Night Alarm"
-				alarm = NONE
-
-		elif sec_mode == VACATION:
+		elif notify_mode == VACATION:
 
 			# check time of event and send alarm if during defined vacation period
 			print "VACATION - Checking time of event and comparing with vacation time"
 
-			vac_start_date = datetime.date(int(sec_params['syr']), int(sec_params['smon']), int(sec_params['sday']))
-			vac_start_time = datetime.time(int(sec_params['shr']), int(sec_params['smin']), 0)
-			vac_start = datetime.datetime.combine(vac_start_date, vac_start_time)
+#			vac_start_date = date(int(notify_params['syr']), int(notify_params['smon']), int(notify_params['sday']))
+#			vac_start_time = time(int(notify_params['shr']), int(notify_params['smin']), 0)
+#			vac_start = datetime.datetime.combine(vac_start_date, vac_start_time)
+			vac_start = datetime.datetime.strptime(notify_params['v_start'], "%d/%m/%y %H:%M")
 			print "vac_start"
 			print vac_start
-			vac_end_date = datetime.date(int(sec_params['eyr']), int(sec_params['emon']), int(sec_params['eday']))
-			vac_end_time = datetime.time(int(sec_params['ehr']), int(sec_params['emin']), 0)
-			vac_end = datetime.datetime.combine(vac_end_date, vac_end_time)
+#			vac_end_date = date(int(notify_params['eyr']), int(notify_params['emon']), int(notify_params['eday']))
+#			vac_end_time = time(int(notify_params['ehr']), int(notify_params['emin']), 0)
+#			vac_end = datetime.datetime.combine(vac_end_date, vac_end_time)
+			vac_end = datetime.datetime.strptime(notify_params['v_end'], "%d/%m/%y %H:%M")
 			print "vac_end"
 			print vac_end
 
-			if (timestamp > vac_start) and (timestamp < vac_end):
-				print "Vacation Alarm"
-				alarm = CRITICAL
-				asc_start = vac_start.strftime("%c")
-				asc_end = vac_end.strftime("%c")
+			alarm = check_period(door, vac_start, vac_end, timestamp, notify_mode)
 
-				# log event and send email
-				log_str = 'Open during vacation: ' + asc_time + ' (' + asc_start + ' - ' + asc_end + ')'
-				mail_str = 'Door was opened during vacation at ' + asc_time + ' (between ' + asc_start + ' and ' + asc_end + ').'
-				notify(door, alarm, mail_str, log_str)
-			else:
-				print"NO Vacation Alarm"
-				alarm = NONE
+		elif notify_mode == ALL:
 
-		# if a door has been closed, cancel the timers if necessary
+			# notify door was opened
+			alarm = INFO
+			mail_str = door + ' door was opened at ' + time.ctime(timestamp) + '.'
+			notify(door, alarm, mail_str, "")
 
 	elif event == CLOSED:
 
-		alarm = NONE
+		alarm = INFO
+
+		# stop timers
+		if notify_mode == TIMER:
+			stop_timers(door)
+
+		elif notify_mode == ALL:
+
+			mail_str = door + ' door was closed at ' + time.ctime(timestamp) + '.'
+			notify(door, alarm, mail_str, "")
+
+		# if door was in alarm, send notification that door was closed
+		if (door_info[door]['severity'] == CRITICAL) or (door_info[door]['severity'] == WARNING):
+
+			log_str = 'Alarm Cleared'
+			mail_str = door + ' door was closed at ' + time.ctime(timestamp) + '.'
+			notify(door, alarm, mail_str, log_str)
 
 	return alarm
 
-# Function that handles POST for changing security mode
-@app.route("/api/sec_change", methods=['POST'])
-def api_sec_mode():
 
-	global door_info, sec_mode, sec_params
+# Function that handles POST for changing notification mode
+@app.route("/api/notify_change", methods=['POST'])
+def api_notify_mode():
+
+	global door_info, notify_mode, notify_params
 
 	if request.headers['Content-Type'] == 'application/json':
 
-		# retrieve data from JSON
-		sec_data = request.json
+		# stop timers if they are already running
+		if notify_mode == TIMER:
+			for door in doors:
+				stop_timers(door)
 
-		# write new security data to file
+		# retrieve data from JSON
+		notify_data = request.json
+
+		# write new notification data to file
 		print "Got security mode change"
-		sec_mode = sec_data['mode']
-		sec_params = sec_data['params']
-		print sec_mode
-		print sec_params
-		with open(sec_conf_file, 'w') as outfile:
-			json.dump(sec_data, outfile)
+		notify_mode = notify_data['mode']
+		notify_params = notify_data['params']
+		print notify_mode
+		print notify_params
+		with open(notify_conf_file, 'w') as outfile:
+			json.dump(notify_data, outfile)
 			outfile.close()
+
+		log_str = 'Notification Mode changed to ' + notify_mode
+		logging.debug(log_str)
 
 		# Get information about state of doors and alarm if necessary
 		door_info = get_door_info()
@@ -299,13 +362,13 @@ def api_door_event():
 		event_data = request.json
 		door = event_data['door']
 		event = event_data['event']
-		timestamp = datetime.datetime.now()
-		print "Got event " + event
+		timestamp = event_data['timestamp']
+		asc_timestamp = time.ctime(float(timestamp))
 
 		# log the received event with a prefix for the appropriate door
-		prefix = '[' + door.upper() + ']'
-		raw_str = prefix + timestamp.strftime("%c") + ',' + door + ',' + event
-		logging.debug(raw_str)
+		print "Got event " + event + "," + door + "," + asc_timestamp
+		log_str = event + " event received; Sent " + asc_timestamp
+		notify(door, INFO, "", log_str)
 
 		# update dictionary of info about door
 		door_info[door]['state'] = event
@@ -316,15 +379,15 @@ def api_door_event():
 	else:
 		return "Unsupported Media Type", 415
 
-# Function that handles GET from web server for security mode, info for all doors and part of log
+# Function that handles GET from web server for notification mode, info for all doors and part of log
 @app.route("/api/get_info", methods=['GET'])
 def api_get_info():
 
-	global sec_mode, sec_pararms, door_info
+	global notify_mode, notify_params, door_info
 
 	print "Got request for data"
 
-	sec_data = {'mode': sec_mode, 'params': sec_params}
+	notify_data = {'mode': notify_mode, 'params': notify_params}
 
 	# get last 50 lines in log file
 	garage_log_file = open(log_file, 'r')
@@ -332,7 +395,7 @@ def api_get_info():
 	garage_log_file.close()
 	last50 = lines[-50:]
 
-	return jsonify({'door_info': door_info, 'sec_data': sec_data, 'last50': last50})
+	return jsonify({'door_info': door_info, 'notify_data': notify_data, 'last50': last50})
 
 
 #
@@ -343,20 +406,20 @@ def api_get_info():
 door_info = {}
 for door in doors:
 	door_info[door] = {}
+	door_info[door]['severity'] = NONE
 
-# Configure log file
-logging.basicConfig(filename=log_file, level=logging.DEBUG, format=log_format, datefmt=date_format)
-logging.debug('RESTART DOORS-'+os.path.basename(__file__))	# log program restart
+# Configure log file and log program restart
+log_restart(os.path.basename(__file__))
 
 # get the security mode information from the security config file
 # includes the security mode (OFF, TIMER, NIGHT, VACATION) and the appropriate parameters for that mode
-with open(sec_conf_file, 'r') as json_data:
-	sec_data = json.load(json_data)
+with open(notify_conf_file, 'r') as json_data:
+	notify_data = json.load(json_data)
 	json_data.close()
-sec_mode = sec_data['mode']
-sec_params = sec_data['params']
-print "sec_mode: ", sec_mode
-print "sec_params: ", sec_params
+notify_mode = notify_data['mode']
+notify_params = notify_data['params']
+print "notify_mode: ", notify_mode
+print "notify_params: ", notify_params
 
 # get information about each door
 # includes the state (OPEN or CLOSED), alarm severity (INFO, WARNING, CRITICAL) and timestamp for the last event
@@ -364,4 +427,4 @@ door_info = get_door_info()
 print "door_info: ", door_info
 
 if __name__ == '__main__':
-    app.run(host = '0.0.0.0', debug = True)
+    app.run(host = '0.0.0.0', debug = True, use_reloader=False)

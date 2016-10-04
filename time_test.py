@@ -1,7 +1,22 @@
 #!local/bin/python
 import datetime
+import time
+
+print "time.time() = ", time.time()
+print "time.ctime() = ", time.ctime(time.time())
+print "time.gmtime() = ", time.gmtime()
+print "time.strftime(time.gmtime) = ", time.strftime("%c", time.gmtime())
+print "time.strftime(time.localtime) = ", time.strftime("%c", time.localtime())
+
+asc_time = str(time.time())
+conv_time = datetime.datetime.fromtimestamp(float(asc_time))
+print "conv_time = ", conv_time
 
 nparams = {'duskh': "18", 'duskm': "04", 'dawnh': "17", 'dawnm': "30"}
+dusk = "18:04"
+dawn = "06:00"
+dusk_time = datetime.datetime.strptime(dusk, "%H:%M")
+
 vparams = {'syr': "2015", 'smon': "12", 'sday': "13", 'shr': "18", 'smin': "00", 'eyr': "2016", 'emon': "01", 'eday': "20", 'ehr': "17", 'emin': "30"}
 
 day_today_date = datetime.date.today()

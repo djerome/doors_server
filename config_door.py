@@ -13,17 +13,27 @@ import time
 GARAGE = "Garage"
 MAN = "Man"
 doors = [GARAGE, MAN]
+
+# door states
 OPEN = "Open"
 CLOSED = "Closed"
+
 OFF = "Off"
 ON = "On"
+
+# notification modes
+OFF = "Off"
 TIMER = "Timer"
 NIGHT = "Night"
 VACATION = "Vacation"
+ALL = "All"
+
+# alarm severities
+NONE = "None"
 INFO = "Info"
 WARNING = "Warning"
 CRITICAL = "Critical"
-NONE = "None"
+
 timer_severities = [WARNING, CRITICAL]
 init_wait_time = 1
 max_wait_time = 8193
@@ -31,7 +41,7 @@ max_wait_time = 8193
 # logging constants
 log_file = "/var/log/doors/garage.log"
 log_format = "%(asctime)s: %(message)s"
-date_format = "%m/%d/%Y %I:%M:%S %p"
+date_format = "%m/%d/%Y %X"
 
 # GPIO pin for each door
 pin = {GARAGE: 23, MAN: 24}
@@ -70,33 +80,32 @@ def rest_conn(host, port, path, method, data):
 	while host_down:
 
 		try:
+			status = 'OK'
 			if method == 'GET':
 				response, content = http.request(url, method, headers=headers)
-				logging.debug('CONNECT-Recv: ' + host + ',OK')	# log successful transmission of event
 				print "Response:"
 				print response
 				print "Content:"
 				print content
-				return json.loads(content)
+				result =  json.loads(content)
 			elif method == 'POST':
 				response, content = http.request(url, method, json.dumps(data), headers=headers)
-				logging.debug('CONNECT-Send: ' + host + ',OK')	# log successful transmission of event
 				print "Response:"
 				print response
 				print "Content:"
 				print content
-				return {}
+				result = {}
 			host_down = False
+			logging.debug('CONNECT:' + url + ',' + method + ',OK')
+			return result
 		except:
+			status = 'Error'
 			print "Error Connecting ..."
-			if method == 'GET':
-				logging.debug('CONNECT-Recv: ' + host + ',Error')	# log unsuccessful transmission of event
-			elif method == 'POST':
-				logging.debug('CONNECT-Send: ' + host + ',Error')	# log unsuccessful transmission of event
-
+			logging.debug('CONNECT:' + url + ',' + method + ',Error')
 			time.sleep(wait_time)
 			if wait_time < max_wait_time:
 				wait_time = wait_time + wait_time
+
 
 
 def log_restart(script_name):
