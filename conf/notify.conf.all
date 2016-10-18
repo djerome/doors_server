@@ -1,1 +1,1 @@
-{"mode": "All", "params": {}}
+{"mode": "All", "params": {}, "methods": ["email", "text"]}

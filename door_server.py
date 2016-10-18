@@ -6,7 +6,6 @@
 #
 
 from config_door import *
-#from datetime import datetime, date, time, timedelta
 import datetime
 import time
 import threading
@@ -91,7 +90,7 @@ def timer_notify(door, event_time, severity, limit):
 
 	# log event and send email
 	log_str = 'Timer (' + asc_limit + 's) expired'
-	mail_str = door + ' door has been open more than ' + asc_limit + 's.\nSince ' + asc_time
+	mail_str = door + ' door has been open more than ' + asc_limit + 's.  Since:\n\t' + asc_time
 	notify(door, severity, mail_str, log_str)
 
 	return
@@ -112,29 +111,37 @@ def notify(door, severity, mail_str, log_str):
 	#
 	###
 
+	global notify_methods
+
 	prefix = '[' + door.upper() + ']'
 	if log_str != "":
 		full_log_str = prefix + severity.upper() + ': ' + log_str
 		logging.debug(full_log_str)
 
 	if mail_str != "":
-		# send email
-		mail_addr = 'djerome@gmail.com'
-		msg = MIMEMultipart()
-		msg['From'] = mail_addr
-		msg['To'] = mail_addr
-		msg['Subject'] = '[GARAGE] ' + door + ' door ' + severity.upper() + ' Alarm'
-		msg.attach(MIMEText(mail_str))
-		mailserver = smtplib.SMTP('smtp.gmail.com', 587)
-		# identify ourselves to smtp gmail client
-		mailserver.ehlo()
-		# secure our email with tls encryption
-		mailserver.starttls()
-		# re-identify ourselves as an encrypted connection
-		mailserver.ehlo()
-		mailserver.login(mail_addr, 'criznartfpjlyhme')
-		mailserver.sendmail(mail_addr, mail_addr, msg.as_string())
-		mailserver.quit()
+		for method in notify_methods:
+
+			# send email
+			msg = MIMEMultipart()
+			from_addr = 'djerome@gmail.com'
+			msg['From'] = from_addr
+			if method == "email":
+				to_addr = 'djerome@gmail.com'
+				msg['Subject'] = '[GARAGE] ' + door + ' door ' + severity.upper() + ' Alarm'
+			if method == "text":
+				to_addr = '4163589017@pcs.rogers.com'
+			msg['To'] = to_addr
+			msg.attach(MIMEText(mail_str))
+			mailserver = smtplib.SMTP('smtp.gmail.com', 587)
+			# identify ourselves to smtp gmail client
+			mailserver.ehlo()
+			# secure our email with tls encryption
+			mailserver.starttls()
+			# re-identify ourselves as an encrypted connection
+			mailserver.ehlo()
+			mailserver.login(from_addr, 'criznartfpjlyhme')
+			mailserver.sendmail(from_addr, to_addr, msg.as_string())
+			mailserver.quit()
 
 	return
 
@@ -191,7 +198,7 @@ def check_period(door, start, end, timestamp, notify_mode):
 
 		# log event and send email
 		log_str = notify_mode + ' Alarm: Open between ' + asc_start + ' - ' + asc_end
-		mail_str = door + ' door was opened during ' + notify_mode + ' at ' + asc_time + '.\n' + notify_mode + ' is: ' + asc_start + ' - ' + asc_end + '.'
+		mail_str = door + ' door was opened during ' + notify_mode + ' at:\n\t' + asc_time + '\n' + notify_mode + ' is:\n\t' + asc_start + ' - ' + asc_end
 		notify(door, alarm, mail_str, log_str)
 	else:
 		print"NO " + notify_mode + " Alarm"
@@ -291,7 +298,7 @@ def check_alarm(door, event, timestamp):
 
 			# notify door was opened
 			alarm = INFO
-			mail_str = door + ' door was opened at ' + time.ctime(timestamp) + '.'
+			mail_str = door + ' door was opened at:\n\t' + time.ctime(timestamp)
 			notify(door, alarm, mail_str, "")
 
 	elif event == CLOSED:
@@ -304,20 +311,20 @@ def check_alarm(door, event, timestamp):
 
 		elif notify_mode == ALL:
 
-			mail_str = door + ' door was closed at ' + time.ctime(timestamp) + '.'
+			mail_str = door + ' door was closed at:\n\t' + time.ctime(timestamp)
 			notify(door, alarm, mail_str, "")
 
 		# if door was in alarm, send notification that door was closed
 		if (door_info[door]['severity'] == CRITICAL) or (door_info[door]['severity'] == WARNING):
 
 			log_str = 'Alarm Cleared'
-			mail_str = door + ' door was closed at ' + time.ctime(timestamp) + '.'
+			mail_str = door + ' door was closed at:\n\t' + time.ctime(timestamp)
 			notify(door, alarm, mail_str, log_str)
 
 	return alarm
 
 
-# Function that handles POST for changing notification mode
+# Function that handles POST for changing notification mode or methods
 @app.route("/api/notify_change", methods=['POST'])
 def api_notify_mode():
 
@@ -337,13 +344,15 @@ def api_notify_mode():
 		print "Got security mode change"
 		notify_mode = notify_data['mode']
 		notify_params = notify_data['params']
+		notify_methods = notify_data['methods']
 		print notify_mode
 		print notify_params
+		print notify_methods
 		with open(notify_conf_file, 'w') as outfile:
 			json.dump(notify_data, outfile)
 			outfile.close()
 
-		log_str = 'Notification Mode changed to ' + notify_mode
+		log_str = 'Notification Changes: New mode = ' + notify_mode + '; New methods = ' + notify_methods
 		logging.debug(log_str)
 
 		# Get information about state of doors and alarm if necessary
@@ -387,7 +396,7 @@ def api_get_info():
 
 	print "Got request for data"
 
-	notify_data = {'mode': notify_mode, 'params': notify_params}
+	notify_data = {'mode': notify_mode, 'params': notify_params, 'methods': notify_methods}
 
 	# get last 50 lines in log file
 	garage_log_file = open(log_file, 'r')
@@ -418,8 +427,10 @@ with open(notify_conf_file, 'r') as json_data:
 	json_data.close()
 notify_mode = notify_data['mode']
 notify_params = notify_data['params']
+notify_methods = notify_data['methods']
 print "notify_mode: ", notify_mode
 print "notify_params: ", notify_params
+print "notify_methods: ", notify_methods
 
 # get information about each door
 # includes the state (OPEN or CLOSED), alarm severity (INFO, WARNING, CRITICAL) and timestamp for the last event
