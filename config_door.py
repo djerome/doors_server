@@ -28,11 +28,18 @@ NIGHT = "Night"
 VACATION = "Vacation"
 ALL = "All"
 
+# notification methods
+TEXT = "text"
+EMAIL = "email"
+
 # alarm severities
 NONE = "None"
 INFO = "Info"
 WARNING = "Warning"
 CRITICAL = "Critical"
+
+# time format strings
+time_format = {NIGHT: "%H:%M", VACATION: "%d/%m/%y %H:%M"}
 
 timer_severities = [WARNING, CRITICAL]
 init_wait_time = 1

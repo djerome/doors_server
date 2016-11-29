@@ -69,3 +69,35 @@ if (time_now > vac_start) and (time_now < vac_end):
 	print "Vacation Alarm"
 else:
 	print"NO Vacation Alarm"
+
+# Test setup of night and vacation timers
+# Convert start and end times into a timestamp in seconds
+start_time = "20/11/16 21:36"
+end_time = "20/11/16 23:36"
+start_time_s = time.mktime(time.strptime(start_time, "%d/%m/%y %H:%M"))
+end_time_s = time.mktime(time.strptime(end_time, "%d/%m/%y %H:%M"))
+print "start_time_s = " + str(start_time_s)
+print "end_time_s = " + str(end_time_s)
+
+# Compute delay until start_time
+# get time now in seconds
+now_time_s = time.time()
+print "now_time_s = " + str(now_time_s)
+
+# calculate delta in seconds between now and start_time
+start_delta = start_time_s - now_time_s
+end_delta = end_time_s - now_time_s
+print "start_delta = " + str(start_delta)
+print "end_delta = " + str(end_delta)
+
+fire_time_v = "25/11/16 21:36"
+time_format_v = "%d/%m/%y %H:%M"
+fire_time_v = time.mktime(time.strptime(fire_time_v, time_format_v))
+print "fire_time_v = " + str(fire_time_v)
+fire_time_n = "21:36"
+time_format_n = "%H:%M"
+day_today_date = datetime.date.today()
+fire_time_n = datetime.datetime.time(datetime.datetime.strptime(fire_time_n, time_format_n))
+fire_time_n = datetime.datetime.combine(day_today_date, fire_time_n)
+fire_time_n = time.mktime(fire_time_n.timetuple())
+print "fire_time_n = " + str(fire_time_n)
