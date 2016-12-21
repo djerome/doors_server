@@ -29,8 +29,8 @@ VACATION = "Vacation"
 ALL = "All"
 
 # notification methods
-TEXT = "text"
-EMAIL = "email"
+TEXT = "Text"
+EMAIL = "Email"
 
 # alarm severities
 NONE = "None"

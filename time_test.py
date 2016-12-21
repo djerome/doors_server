@@ -51,6 +51,8 @@ print "As a string: " + asc_time_now
 #date_now = datetime.datetime.now().date()
 
 one_day = datetime.timedelta(days=1)
+one_day_secs = datetime.timedelta(days=1).total_seconds()
+print "one day in seconds: " + str(one_day_secs)
 
 if dusk_today < dawn_today:
 	print "dusk and dawn on same day"
