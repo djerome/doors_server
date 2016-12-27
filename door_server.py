@@ -18,14 +18,46 @@
 #				{"dawn" = <timestamp>, "dusk" = <timestamp>}|
 #				{"Critical" = <seconds>, "Warning" = <seconds>}
 #	notify_data['method'] = EMAIL|TEXT <or both>
+#
+# pseudocode
+# at startup or when mode is changed
+#   if mode == NIGHT or mode == VACATION
+#     if start_time > time_now
+#       start start_time timer
+#     else
+#       { start_time has already passed }
+#       if event == OPEN
+#         alarm
+#     if end_time > time_now
+#       start end_time timer
+#     else
+#       { end_time has already passed }
+#
+#     if event == OPEN
+#       if timestamp > start_time and timestamp < end_time
+#         alarm
+#       else
+#         no alarm
+#     else
+#       no alarm
+#
+# when start_time timer fires
+#   if event == OPEN
+#     alarm
+#   if mode == NIGHT
+#     start a new start_timer for next day
+# when end_time timer fires
+#   if event == OPEN
+#     no alarm
+#   if mode == NIGHT
+#     start a new end_timer for next day
 
-from config_door import *
+
+from config_door_common import *
 import datetime
 import time
 import threading
-import logging
 import smtplib
-import httplib2
 import os
 from email.MIMEMultipart import MIMEMultipart
 from email.MIMEText import MIMEText
@@ -85,12 +117,12 @@ def notify(door, severity, mail_str, log_str):
 	#
 	###
 
-	global notify_methods
+	global notify_methods, logger
 
 	prefix = '[' + door.upper() + ']'
 	if log_str != "":
 		full_log_str = prefix + severity.upper() + ': ' + log_str
-		logging.debug(full_log_str)
+		logger.info(full_log_str)
 
 	if mail_str != "":
 		for method in notify_methods:
@@ -136,7 +168,6 @@ def stop_timers(door, mode):
 
 	global timer
 
-	print "In stop_timers ..."
 	# stop Timer mode timers
 	if mode == TIMER:
 
@@ -164,11 +195,7 @@ def stop_timers(door, mode):
 			if timer[door][mode][type]:
 				timer[door][mode][type].cancel()
 
-#				while timer[door][mode][type].is_alive():
-#					print "Still alive"
-
 		notify(door, INFO, "", 'Stopping Timers')
-	print "Timers running: ", threading.enumerate()
 
 	return
 
@@ -192,7 +219,6 @@ def check_period(door, start, end, timestamp, notify_mode):
 
 	dt_timestamp = datetime.datetime.fromtimestamp(timestamp)
 	if (dt_timestamp >= start) and (dt_timestamp < end):
-		print notify_mode + " Alarm"
 		alarm = CRITICAL
 		asc_start = start.strftime("%c")
 		asc_end = end.strftime("%c")
@@ -203,7 +229,6 @@ def check_period(door, start, end, timestamp, notify_mode):
 		mail_str = door + ' door was opened during ' + notify_mode + ' at:\n\t' + asc_time + '\n' + notify_mode + ' is:\n\t' + asc_start + ' - ' + asc_end
 		notify(door, alarm, mail_str, log_str)
 	else:
-		print"NO " + notify_mode + " Alarm"
 		alarm = NONE
 
 	return alarm
@@ -230,7 +255,6 @@ def start_timer(mode, door, type):
 
 	global timer, notify_params
 
-	print "In start_timer ..."
 	one_day_secs = datetime.timedelta(days=1).total_seconds()
 
 	# get time now in seconds
@@ -257,13 +281,11 @@ def start_timer(mode, door, type):
 
 	# calculate delta in seconds between now and fire time 
 	fire_delta = fire_time - now_time
-	print "fire_delta = " + str(fire_delta)
 
 	# if the fire_time has already passed, set new fire_time to tomorrow for NIGHT mode
 	if mode == NIGHT:
 		if fire_delta < 0:
 			fire_delta = fire_delta + one_day_secs
-			print "fire_delta = " + str(fire_delta)
 
 	# if time that timer should fire is in the future
 	if fire_delta > 0:
@@ -272,9 +294,6 @@ def start_timer(mode, door, type):
 		timer[door][mode][type] = threading.Timer(fire_delta, update_severity, args=(door,mode,type,))
 		timer[door][mode][type].name = door + '_' + mode + '_' + type
 		timer[door][mode][type].start()
-		print "Starting " + mode + " " + type + " timer for " + door
-
-	print "Timers running: ", threading.enumerate()
 
 
 # Function that updates alarm severity when a timer fires
@@ -295,16 +314,14 @@ def update_severity(door, mode, type):
 
 	global door_info, timer, notify_params
 
-	print "In update_severity ..."
 	# get current door state and use that as event
 	current_state = door_info[door]['state']
 
 	# Set timestamp to current time
 	current_time = time.time()
 
+    # update the alarm severity for the door
 	door_info[door]['severity'] = check_alarm(door, current_state, current_time)
-	print "Timer fired for door " + door + ", updated severity:"
-	print door_info
 
 	# if NIGHT mode, start a new timer for the next day
 	if mode == NIGHT:
@@ -329,36 +346,6 @@ def check_alarm(door, event, timestamp):
 
 	global notify_mode, notify_params, door_info, timer
 
-	print "Checking alarm for " + door + " " + notify_mode
-
-	# pseudocode
-	# at startup or when mode is changed
-	#   if mode == NIGHT or mode == VACATION
-	#     if start_time timer is not started
-	#       if start_time > time_now
-	#         start start_time timer
-	#       else
-	#         { start_time has already passed }
-	#     else
-	#       { start_time timer is already running } 
-	#     if end_time timer is not started
-	#       if end_time > time_now
-	#         start end_time timer
-	#       else
-	#         { end_time has already passed }
-	#     else
-	#       { end_time timer is already running } 
-	#
-	#     if event == OPEN
-	#       if timestamp > start_time and timestamp < end_time
-	#         alarm
-	#       else
-	#         no alarm
-	#     else
-	#       no alarm
-	#
-	# 
-
 	# default alarm condition
 	alarm = NONE
 
@@ -366,10 +353,7 @@ def check_alarm(door, event, timestamp):
 
 		if notify_mode == TIMER:
 
-			# start timers
-			print "TIMER - Starting timers"
-
-			# Setup and start alarm timers
+			# Setup and start TIMER alarm timers
 			for severity in timer_severities:
 				limit = int(notify_params[severity])
 				timer[door][severity] = threading.Timer(limit, timer_notify, args=(door,timestamp,severity,limit,))
@@ -397,16 +381,16 @@ def check_alarm(door, event, timestamp):
 			if dusk > dawn:
 				dawn = dawn + one_day
 
-			# check time of event and send alarm if between dusk and dawn
-			alarm = check_period(door, dusk, dawn, timestamp, notify_mode)
+			# check time of event and send alarm if timestamp is between dusk and dawn
+			alarm = check_period(door, dusk, dawn, timestamp, NIGHT)
 
 		elif notify_mode == VACATION:
 
 			vac_start = datetime.datetime.strptime(notify_params['v_start'], time_format[VACATION])
 			vac_end = datetime.datetime.strptime(notify_params['v_end'], time_format[VACATION])
 
-			# check time of event and send alarm if during defined vacation period
-			alarm = check_period(door, vac_start, vac_end, timestamp, notify_mode)
+			# check time of event and send alarm if timestamp is during vacation period
+			alarm = check_period(door, vac_start, vac_end, timestamp, VACATION)
 
 		elif notify_mode == ALL:
 
@@ -443,7 +427,7 @@ def check_alarm(door, event, timestamp):
 @app.route("/api/notify_change", methods=['POST'])
 def api_notify_mode():
 
-	global door_info, notify_mode, notify_params, notify_methods
+	global door_info, notify_mode, notify_params, notify_methods, logger
 
 	if request.headers['Content-Type'] == 'application/json':
 
@@ -455,13 +439,9 @@ def api_notify_mode():
 		notify_data = request.json
 
 		# write new notification data to file
-		print "Got security mode change"
 		notify_mode = notify_data['mode']
 		notify_params = notify_data['params']
 		notify_methods = notify_data['methods']
-		print notify_mode
-		print notify_params
-		print notify_methods
 		with open(notify_conf_file, 'w') as outfile:
 			json.dump(notify_data, outfile)
 			outfile.close()
@@ -477,7 +457,7 @@ def api_notify_mode():
 				start_timer(VACATION, door, "end")
 
 		log_str = 'Notification Changes: Mode = ' + notify_mode + '; Params = ' + str(notify_params) + '; Methods = ' + str(notify_methods)
-		logging.debug(log_str)
+		logger.info(log_str)
 
 		# Set timestamp to current time
 		current_time = time.time()
@@ -489,7 +469,6 @@ def api_notify_mode():
 			current_state = door_info[door]['state']
 
 			door_info[door]['severity'] = check_alarm(door, current_state, current_time)
-		print door_info
 
 		return "OK", 200
 	else:
@@ -508,7 +487,6 @@ def api_door_event():
 		asc_timestamp = time.ctime(float(timestamp))
 
 		# log the received event with a prefix for the appropriate door
-		print "Got event " + event + "," + door + "," + asc_timestamp
 		log_str = event + " event received; Sent " + asc_timestamp
 		notify(door, INFO, "", log_str)
 
@@ -516,7 +494,6 @@ def api_door_event():
 		door_info[door]['state'] = event
 		door_info[door]['severity'] = check_alarm(door, event, timestamp)
 		door_info[door]['timestamp'] = timestamp
-		print door_info
 
 		return "OK", 200
 	else:
@@ -527,9 +504,6 @@ def api_door_event():
 def api_get_info():
 
 	global notify_mode, notify_params, door_info, notify_methods, restart_time
-
-	print "Got request for data"
-	print "Timers running: ", threading.enumerate()
 
 	notify_data = {'mode': notify_mode, 'params': notify_params, 'methods': notify_methods, 'restart': restart_time}
 
@@ -547,11 +521,19 @@ def api_get_info():
 #
 
 # initializations
+# time format strings
+time_format = {NIGHT: "%H:%M", VACATION: "%d/%m/%y %H:%M"}
+
+# TIMER mode severities
+timer_severities = [WARNING, CRITICAL]
+
+# dictionary that holds all information about doors
 door_info = {}
 for door in doors:
 	door_info[door] = {}
 	door_info[door]['severity'] = NONE
 
+# configuration file where notification settings are stored
 notify_conf_file = "/home/pi/doors/conf/notify.conf"
 
 # Alarm timer initializations
@@ -565,8 +547,8 @@ for door in doors:
 		for type in ("start", "end"):
 			timer[door][mode][type] = {}
 
-# Configure log file and log program restart
-log_restart(os.path.basename(__file__))
+# Setup logger log program restart
+logger = log_setup(os.path.basename(__file__))
 
 # get the security mode information from the security config file
 # includes the security mode (OFF, TIMER, NIGHT, VACATION) and the appropriate parameters for that mode
@@ -576,9 +558,6 @@ with open(notify_conf_file, 'r') as json_data:
 notify_mode = notify_data['mode']
 notify_params = notify_data['params']
 notify_methods = notify_data['methods']
-print "notify_mode: ", notify_mode
-print "notify_params: ", notify_params
-print "notify_methods: ", notify_methods
 
 # start timers for start and end of period if notification mode is Night or Vacation
 if notify_mode == NIGHT:
@@ -590,25 +569,22 @@ elif notify_mode == VACATION:
 		start_timer(VACATION, door, "start")
 		start_timer(VACATION, door, "end")
 
-# get information about each door
-# includes the state (OPEN or CLOSED), alarm severity (INFO, WARNING, CRITICAL) and timestamp for the last event
-
-door_state = rest_conn(detect_server, "5000", "/api/get_doors", "GET", "")
-
 # On startup we don't know when door state changed so set the event timestamp to the current time
 restart_time = time.time()
 
+# get the state of both doors
+print "Getting door state"
+door_state = rest_conn(detect_server, "5000", "/api/get_doors", "GET", "",
+logger)
+
 # initialize info for each door
 for door in doors:
-	print door
 	state = door_state[door]
 
 	# populate dictionary of info about door and check if door is in alarm
 	door_info[door]['state'] = state
 	door_info[door]['severity'] = check_alarm(door, state, restart_time)
 	door_info[door]['timestamp'] = restart_time
-
-print "door_info: ", door_info
 
 if __name__ == '__main__':
     app.run(host = '0.0.0.0', debug = True, use_reloader=False)

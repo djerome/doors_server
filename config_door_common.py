@@ -1,15 +1,16 @@
 #
-#	config_door.py
+#	config_door_common.py
 #
-#	Defines constants used in door application
+#	Defines constants and functions used by all components of door application
 #
 
 import httplib2
 from flask import json
 import logging
+from logging.handlers import TimedRotatingFileHandler
 import time
 
-# Constants used on server and client
+# doors
 GARAGE = "Garage"
 MAN = "Man"
 doors = [GARAGE, MAN]
@@ -17,9 +18,6 @@ doors = [GARAGE, MAN]
 # door states
 OPEN = "Open"
 CLOSED = "Closed"
-
-OFF = "Off"
-ON = "On"
 
 # notification modes
 OFF = "Off"
@@ -38,10 +36,7 @@ INFO = "Info"
 WARNING = "Warning"
 CRITICAL = "Critical"
 
-# time format strings
-time_format = {NIGHT: "%H:%M", VACATION: "%d/%m/%y %H:%M"}
-
-timer_severities = [WARNING, CRITICAL]
+# connection time constants in seconds
 init_wait_time = 1
 max_wait_time = 8193
 
@@ -50,15 +45,12 @@ log_file = "/var/log/doors/garage.log"
 log_format = "%(asctime)s: %(message)s"
 date_format = "%m/%d/%Y %X"
 
-# GPIO pin for each door
-pin = {GARAGE: 23, MAN: 24}
-
 # Servers and Clients
 web_server = "blueberry"
 door_server = "cranberry"
 detect_server = "strawberry"
 
-def rest_conn(host, port, path, method, data):
+def rest_conn(host, port, path, method, post_data, logger):
 	"""Get/send content using REST from/to another host"""
 
 	### Inputs ###
@@ -67,7 +59,7 @@ def rest_conn(host, port, path, method, data):
 	#	port: port on host to communicate with
 	#	path: path to rest resource
 	#	method: http method being used - usually GET or POST
-	#	data: dictionary of data to POST or empty if GET
+	#	post_data: dictionary of data to POST or empty if GET
 	#
 	### Outputs ###
 	#
@@ -81,42 +73,40 @@ def rest_conn(host, port, path, method, data):
 	headers = {'Content-Type': content_type_header}
 	url = "http://" + host + ":" + port + path
 
-	# get initial state of both doors
+	# initialize initial loop wait time, host down flag and result from GET
 	wait_time = init_wait_time
 	host_down = True
-	while host_down:
+	result = {}
 
+	# try to connect to host
+	while host_down:
 		try:
 			status = 'OK'
 			if method == 'GET':
 				response, content = http.request(url, method, headers=headers)
-				print "Response:"
-				print response
-				print "Content:"
-				print content
 				result =  json.loads(content)
 			elif method == 'POST':
-				response, content = http.request(url, method, json.dumps(data), headers=headers)
-				print "Response:"
-				print response
-				print "Content:"
-				print content
-				result = {}
+				response, content = http.request(url, method, json.dumps(post_data), headers=headers)
+
+			# host is not down - log connect OK and return result
 			host_down = False
-			logging.debug('CONNECT:' + url + ',' + method + ',OK')
+			logger.info('CONNECT:' + url + ',' + method + ',OK')
 			return result
+
+		# unable to connect to host
 		except:
 			status = 'Error'
 			print "Error Connecting ..."
-			logging.debug('CONNECT:' + url + ',' + method + ',Error')
+			logger.error('CONNECT:' + url + ',' + method + ',Error')
+
+			# continue looping until connection works, gradually increasing wait time
 			time.sleep(wait_time)
 			if wait_time < max_wait_time:
 				wait_time = wait_time + wait_time
 
 
-
-def log_restart(script_name):
-	"""Log restart of script"""
+def log_setup(script_name):
+	"""Setup logger and log restart of script"""
 
 	### Inputs ###
 	#
@@ -124,10 +114,28 @@ def log_restart(script_name):
 	#
 	### Outputs ###
 	#
-	#	None
+	#	logger: the logger that performs the logging
 	#
 	###
 
-	# Configure log file
-	logging.basicConfig(filename=log_file, level=logging.DEBUG, format=log_format, datefmt=date_format)
-	logging.debug('RESTART: ' + script_name)	# log program restart
+	# create logger
+	logger = logging.getLogger(__name__)
+	logger.setLevel(logging.DEBUG)
+
+	# create timed rotating file handler and set level to debug
+	fh = TimedRotatingFileHandler(log_file, when='D', interval=30, backupCount=12)
+	fh.setLevel(logging.DEBUG)
+
+	# create formatter
+	formatter = logging.Formatter(fmt=log_format, datefmt=date_format)
+
+	# add formatter to file handler
+	fh.setFormatter(formatter)
+
+	# add file handler to logger
+	logger.addHandler(fh)
+
+	# log program restart
+	logger.info('RESTART: ' + script_name)
+
+	return logger
