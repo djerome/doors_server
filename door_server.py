@@ -8,7 +8,7 @@
 #
 #	door_info:
 #	door_info[door]['state'] = OPEN|CLOSED
-#	door_info[door]['severity'] = CRITICAL|WARNING|INFO|NONE
+#	door_info[door]['severity'] = CRITICAL|WARNING|INFO|OK
 #	door_info[door]['timestamp'] = <seconds since epoch> of last event
 #
 #	notify_data:
@@ -176,16 +176,8 @@ def stop_timers(door, mode):
 
 			if timer[door][severity]:
 				timer[door][severity].cancel()
-
-			# Loop until timer is cancelled
-			timer_running = True
-			while timer_running:
-				if timer[door][severity]:
-					time.sleep(1)
-				else:
-					timer_running = False
-
-		notify(door, INFO, "", 'Stopping Timers')
+				notify(door, INFO, "", 'Stopping Timer ' +
+			timer[door][severity].name)
 
 	# stop period (Night or Vacation) mode timers
 	elif (mode == NIGHT) or (mode == VACATION):
@@ -194,8 +186,8 @@ def stop_timers(door, mode):
 		for type in ("start", "end"):
 			if timer[door][mode][type]:
 				timer[door][mode][type].cancel()
-
-		notify(door, INFO, "", 'Stopping Timers')
+				notify(door, INFO, "", 'Stopping Timer ' +
+		timer[door][mode][type].name)
 
 	return
 
@@ -229,7 +221,7 @@ def check_period(door, start, end, timestamp, notify_mode):
 		mail_str = door + ' door was opened during ' + notify_mode + ' at:\n\t' + asc_time + '\n' + notify_mode + ' is:\n\t' + asc_start + ' - ' + asc_end
 		notify(door, alarm, mail_str, log_str)
 	else:
-		alarm = NONE
+		alarm = OK
 
 	return alarm
 
@@ -346,8 +338,10 @@ def check_alarm(door, event, timestamp):
 
 	global notify_mode, notify_params, door_info, timer
 
+	print "Door = " + door + ", event = " + event + ", severity = " + door_info[door]['severity']
+
 	# default alarm condition
-	alarm = NONE
+	alarm = OK
 
 	if event == OPEN:
 
@@ -413,12 +407,12 @@ def check_alarm(door, event, timestamp):
 			mail_str = door + ' door was closed at:\n\t' + time.ctime(timestamp)
 			notify(door, alarm, mail_str, "")
 
-		# if door was in alarm, send notification that door was closed
-		if (door_info[door]['severity'] == CRITICAL) or (door_info[door]['severity'] == WARNING):
+	# if door was in alarm, send notification that door was closed
+	if ((door_info[door]['severity'] == CRITICAL) or (door_info[door]['severity'] == WARNING)) and alarm == OK:
 
-			log_str = 'Alarm Cleared'
-			mail_str = door + ' door was closed at:\n\t' + time.ctime(timestamp)
-			notify(door, alarm, mail_str, log_str)
+		log_str = 'Alarm Cleared'
+		mail_str = door + ' door alarm was cleared at:\n\t' + time.ctime(timestamp)
+		notify(door, alarm, mail_str, log_str)
 
 	return alarm
 
@@ -531,7 +525,7 @@ timer_severities = [WARNING, CRITICAL]
 door_info = {}
 for door in doors:
 	door_info[door] = {}
-	door_info[door]['severity'] = NONE
+	door_info[door]['severity'] = OK
 
 # configuration file where notification settings are stored
 notify_conf_file = "/home/pi/doors/conf/notify.conf"

@@ -31,7 +31,7 @@ TEXT = "Text"
 EMAIL = "Email"
 
 # alarm severities
-NONE = "None"
+OK = "OK"
 INFO = "Info"
 WARNING = "Warning"
 CRITICAL = "Critical"
